@@ -1,0 +1,183 @@
+#include "ode45.hpp"
+#include <iostream>
+#include <iomanip>
+#include <cmath>
+#include <vector>
+
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+using namespace ode45;
+
+// 示例1: 指数衰减方程 dy/dt = -y
+std::vector<double> exponential_decay(double t, const std::vector<double>& y) {
+    return { -y[0] };
+}
+
+// 示例2: 范德波尔振荡器
+std::vector<double> van_der_pol(double t, const std::vector<double>& y, double mu = 1.0) {
+    return { y[1], mu * (1 - y[0] * y[0]) * y[1] - y[0] };
+}
+
+// 示例3: 简单谐波振荡器
+std::vector<double> harmonic_oscillator(double t, const std::vector<double>& y) {
+    return { y[1], -y[0] }; // d²y/dt² + y = 0
+}
+
+// 事件函数示例1: 检测y=0.5
+std::vector<double> event_y_equals_0_5(double t, const std::vector<double>& y) {
+    return { y[0] - 0.5 };
+}
+
+// 事件函数示例2: 检测速度为零(位移极值点)
+std::vector<double> event_velocity_zero(double t, const std::vector<double>& y) {
+    return { y[1] }; // y[1]是速度
+}
+
+// 输出函数示例1: 简单进度显示
+bool output_progress(double t, const std::vector<double>& y, const std::vector<double>& yp) {
+    static int count = 0;
+    if (count % 10 == 0) { // 每10步显示一次
+        std::cout << "Progress: t = " << t << ", y = " << y[0];
+        if (y.size() > 1) std::cout << ", y' = " << y[1];
+        std::cout << "\n";
+    }
+    count++;
+    return true; // 返回false可终止求解
+}
+
+// 输出函数示例2: 收集特定数据点
+struct DataCollector {
+    std::vector<double> t_points;
+    std::vector<std::vector<double>> y_points;
+
+    bool operator()(double t, const std::vector<double>& y, const std::vector<double>& yp) {
+        if (t_points.empty() || t - t_points.back() >= 0.1) { // 每0.1秒收集一次
+            t_points.push_back(t);
+            y_points.push_back(y);
+        }
+        return true;
+    }
+};
+
+int main() {
+    std::cout << std::fixed << std::setprecision(6);
+
+    // ==============================================
+    // 示例1: 带事件检测的指数衰减方程
+    // ==============================================
+    {
+        std::cout << "\n=== 示例1: 带事件检测的指数衰减 ===\n";
+
+        std::vector<double> tspan = { 0.0, 5.0 };
+        std::vector<double> y0 = { 1.0 };
+
+        Options options;
+        options.event_fcn = event_y_equals_0_5;
+        options.event_terminal = { false }; // 非终止事件
+        options.event_directions = { 1 };   // 只检测正方向交叉(从大到小穿过0.5)
+
+        ODEResult result = solve(exponential_decay, tspan, y0, options);
+
+        // 输出结果
+        std::cout << "解点:\n";
+        for (size_t i = 0; i < result.t.size(); ++i) {
+            std::cout << "t = " << std::setw(8) << result.t[i]
+                << ", y = " << std::setw(10) << result.y[i][0]
+                << ", 精确解 = " << std::setw(10) << std::exp(-result.t[i])
+                << ", 误差 = " << std::setw(10) << std::abs(result.y[i][0] - std::exp(-result.t[i]))
+                << "\n";
+        }
+
+        // 输出检测到的事件
+        std::cout << "\n检测到的事件:\n";
+        for (const auto& event : result.events) {
+            std::cout << "在 t = " << event.event_time
+                << " 检测到事件, y = " << event.event_y[0]
+                << ", 方向 = " << event.direction
+                << ", 是否终止 = " << (event.is_terminal ? "是" : "否") << "\n";
+        }
+    }
+
+    // ==============================================
+    // 示例2: 带输出函数的范德波尔方程
+    // ==============================================
+    {
+        std::cout << "\n=== 示例2: 带输出函数的范德波尔方程 ===\n";
+
+        std::vector<double> tspan = { 0.0, 20.0 };
+        std::vector<double> y0 = { 2.0, 0.0 };
+
+        auto vdp = [](double t, const std::vector<double>& y) {
+            return van_der_pol(t, y, 1.0);
+            };
+
+        Options options;
+        options.output_fcn = output_progress;
+
+        ODEResult result = solve(vdp, tspan, y0, options);
+
+        std::cout << "\n最终解(前10个点):\n";
+        for (size_t i = 0; i < std::min(result.t.size(), size_t(10)); ++i) {
+            std::cout << "t = " << std::setw(8) << result.t[i]
+                << ", y = " << std::setw(10) << result.y[i][0]
+                << ", y' = " << std::setw(10) << result.y[i][1] << "\n";
+        }
+    }
+
+    // ==============================================
+    // 示例3: 带终止事件的谐波振荡器
+    // ==============================================
+    {
+        std::cout << "\n=== 示例3: 带终止事件的谐波振荡器 ===\n";
+
+        std::vector<double> tspan = { 0.0, 10.0 };
+        std::vector<double> y0 = { 1.0, 0.0 };
+
+        Options options;
+        options.event_fcn = event_velocity_zero;
+        options.event_terminal = { true }; // 终止事件
+        //options.event_directions = { -1 }; // 只检测负方向交叉
+        options.event_directions = { 0 };  // 检测所有方向的过零点
+
+        ODEResult result = solve(harmonic_oscillator, tspan, y0, options);
+
+        std::cout << "解在第一次速度为零交叉点停止:\n";
+        std::cout << "t = " << result.t.back()
+            << ", y = " << result.y.back()[0]
+            << ", y' = " << result.y.back()[1] << "\n";
+
+        std::cout << "计算的总点数: " << result.t.size() << "\n";
+        std::cout << "检测到的终止事件在 t = " << result.events[0].event_time
+            << ", y = " << result.events[0].event_y[0]
+            << ", y' = " << result.events[0].event_y[1] << "\n";
+    }
+
+    // ==============================================
+    // 示例4: 使用数据收集器输出函数
+    // ==============================================
+    {
+        std::cout << "\n=== 示例4: 使用数据收集器输出函数 ===\n";
+
+        std::vector<double> tspan = { 0.0, 2 * M_PI };
+        std::vector<double> y0 = { 1.0, 0.0 };
+
+        DataCollector collector;
+        Options options;
+        options.output_fcn = [&collector](double t, const std::vector<double>& y, const std::vector<double>& yp) {
+            return collector(t, y, yp);
+            };
+
+        ODEResult result = solve(harmonic_oscillator, tspan, y0, options);
+
+        std::cout << "收集的数据点(每0.1秒):\n";
+        for (size_t i = 0; i < collector.t_points.size(); ++i) {
+            std::cout << "t = " << std::setw(8) << collector.t_points[i]
+                << ", y = " << std::setw(10) << collector.y_points[i][0]
+                << ", y' = " << std::setw(10) << collector.y_points[i][1] << "\n";
+        }
+    }
+
+    return 0;
+}
