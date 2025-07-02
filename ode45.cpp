@@ -4,7 +4,6 @@
 #include <cassert>
 
 namespace ode45 {
-
     ODEResult solve(
         const ODEFunction& func,
         const std::vector<double>& tspan,
@@ -66,32 +65,23 @@ namespace ode45 {
                 h = tf - t;
             }
 
-            // 尝试RK45步
-            auto y_new = internal::rk45_step(func, t, y, h);
-
-            // 估计误差
-            auto y_low = internal::rk45_step(func, t, y, h / 2);
-            y_low = internal::rk45_step(func, t + h / 2, y_low, h / 2);
-
-            double error = internal::estimate_error(y, y_new, y_low, options.rtol, options.atol);
-
-            // 接受或拒绝步长
-            if (error <= 1.0) { // 步长可接受
+            if (options.fixed_step) {
+                // 定步长模式 - 直接使用当前步长
                 double t_old = t;
-                auto y_old = y;
+                std::vector<double> y_old = y;
 
+                // 执行RK45步
+                y = internal::rk45_step(func, t, y, h);
                 t += h;
-                y = y_new;
 
-                // 检查事件
-// 在ode45.cpp的solve函数中
+                // 事件检测
                 if (options.event_fcn) {
                     auto events = internal::check_events(
                         options.event_fcn, options.event_directions, options.event_terminal,
                         t_old, t, y_old, y);
 
                     for (const auto& event : events) {
-                        // 修改后的插值调用
+                        // 插值得到精确事件点
                         auto interpolated = internal::interpolate(
                             t_old, t, y_old, y, event.event_time);
                         double t_event = interpolated.first;
@@ -126,20 +116,84 @@ namespace ode45 {
                         return result; // 用户请求终止
                     }
                 }
+            }
+            else {
 
-                // 调整下一步的步长
-                if (error > 0) {
-                    h *= 0.9 * std::pow(1.0 / error, 1.0 / 5.0);
-                    h = std::min(h, options.max_step);
+                // 尝试RK45步
+                auto y_new = internal::rk45_step(func, t, y, h);
+
+                // 估计误差
+                auto y_low = internal::rk45_step(func, t, y, h / 2);
+                y_low = internal::rk45_step(func, t + h / 2, y_low, h / 2);
+
+                double error = internal::estimate_error(y, y_new, y_low, options.rtol, options.atol);
+
+
+                // 接受或拒绝步长
+                if (error <= 1.0) { // 步长可接受
+                    double t_old = t;
+                    auto y_old = y;
+
+                    t += h;
+                    y = y_new;
+
+                    // 检查事件
+                    if (options.event_fcn) {
+                        auto events = internal::check_events(
+                            options.event_fcn, options.event_directions, options.event_terminal,
+                            t_old, t, y_old, y);
+
+                        for (const auto& event : events) {
+                            // 修改后的插值调用
+                            auto interpolated = internal::interpolate(
+                                t_old, t, y_old, y, event.event_time);
+                            double t_event = interpolated.first;
+                            auto y_event = interpolated.second;
+
+                            EventInfo event_info = event;
+                            event_info.event_time = t_event;
+                            event_info.event_y = y_event;
+                            result.events.push_back(event_info);
+
+                            if (event.is_terminal) {
+                                result.t.push_back(t_event);
+                                result.y.push_back(y_event);
+
+                                if (options.output_fcn) {
+                                    std::vector<double> yp = func(t_event, y_event);
+                                    options.output_fcn(t_event, y_event, yp);
+                                }
+                                return result;
+                            }
+                        }
+                    }
+
+                    // 存储结果
+                    result.t.push_back(t);
+                    result.y.push_back(y);
+
+                    // 调用输出函数
+                    if (options.output_fcn) {
+                        std::vector<double> yp = func(t, y);
+                        if (!options.output_fcn(t, y, yp)) {
+                            return result; // 用户请求终止
+                        }
+                    }
+
+                    // 调整下一步的步长
+                    if (error > 0) {
+                        h *= 0.9 * std::pow(1.0 / error, 1.0 / 5.0);
+                        h = std::min(h, options.max_step);
+                    }
                 }
-            }
-            else { // 步长不可接受，减小步长重试
-                h *= 0.9 * std::pow(1.0 / error, 1.0 / 5.0);
-            }
+                else { // 步长不可接受，减小步长重试
+                    h *= 0.9 * std::pow(1.0 / error, 1.0 / 5.0);
+                }
 
-            // 防止步长过小
-            if (h < 16 * std::numeric_limits<double>::epsilon() * std::abs(t)) {
-                throw std::runtime_error("Step size became too small");
+                // 防止步长过小
+                if (h < 16 * std::numeric_limits<double>::epsilon() * std::abs(t)) {
+                    throw std::runtime_error("Step size became too small");
+                }
             }
         }
 

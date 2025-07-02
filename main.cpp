@@ -4,7 +4,7 @@
 
 // 定义ODE函数(例如简谐振动系统)
 std::vector<double> harmonic_oscillator(double x, const std::vector<double>& y) {
-    return { y[0] + x }; // dy1/dt = y2, dy2/dt = -y1
+    return { -y[0] + x + 1 }; // dy1/dt = y2, dy2/dt = -y1
 }
 
 int main() {
@@ -16,6 +16,7 @@ int main() {
     ode45::Options options;
     options.rtol = 1e-6;
     options.atol = 1e-8;
+	options.fixed_step = true; // 使用定步长
 	options.initial_step = 0.1; // 初始步长
 
     // 求解ODE

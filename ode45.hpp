@@ -50,6 +50,7 @@ namespace ode45 {
         OutputFcn output_fcn = nullptr;
         std::vector<int> event_directions; // 每个事件的方向 (0=所有, 1=正, -1=负)
         std::vector<bool> event_terminal; // 每个事件是否为终止事件
+        bool fixed_step = false; // 添加定步长选项
     };
 
     // 主求解函数
