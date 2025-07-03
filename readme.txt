@@ -1,7 +1,8 @@
 V1.0
 
 ode45命名空间提供了Runge-Kutta(4,5)方法的实现，用于求解常微分方程(ODE)。这是一个变步长求解器，能够自动调整步长以保持计算精度，同时保证计算效率。
-
+自适应步长使用步长折半法估计误差。
+事件检测使用线性插值。
 ode45::solve函数
 ODEResult solve(
     const ODEFunction& func,
